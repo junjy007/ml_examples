@@ -14,6 +14,7 @@ w0 = ti.field(ti.f32, shape=())
 w1 = ti.field(ti.f32, shape=())
 b = ti.field(ti.f32, shape=())
 act = ti.field(ti.i32, shape=())
+beta = ti.field(ti.f32, shape=())
 
 w_vis = ti.Vector.field(2, ti.f32, shape=(1,))
 
@@ -24,6 +25,7 @@ def init():
     w0[None] = 0.5
     w1[None] = 0.3
     b[None] = 0
+    beta[None] = 10.0
     act[None] = 0
     for i, j in image:
         image[i, j] = ti.Vector([.5, .5, .5])
@@ -32,7 +34,7 @@ def init():
 def cmap(s:float) -> ti.Vector:
     c = ti.Vector([0.0, 0.0, 0.0])
     if s < vmin[None]:
-        c[2] = 0.5
+        c[2] = 1.0
     elif s > vmax[None]:
         c[0] = 1.0
     else:
@@ -49,11 +51,14 @@ def compute_image():
             x0 = (float(i-resolution) / resolution) - 0.5
             x1 = (float(j) / resolution) - 0.5
             s = w0[None] * x0 + w1[None] * x1 + b[None]
-            if act[None]:
+            if act[None] == 1:
                 if s > 0:
                     s = 1.0
                 else:
                     s = -1.0
+            elif act[None] == 2:
+                s = ti.math.tanh(s * beta[None])
+                # s = 1 / (1 + ti.exp(-s*30.0))
             image[i, j] = cmap(s)
         else:
             image[i, j] = ti.Vector([0.3, 0.3, 0.3])
@@ -78,9 +83,10 @@ while window.running:
     w0[None] = gui.slider_float("W0", w0[None], minimum=-WBND, maximum=WBND)
     w1[None] = gui.slider_float("W1", w1[None], minimum=-WBND, maximum=WBND)
     b[None] = gui.slider_float("b", b[None], minimum=-WBND, maximum=WBND)
+    beta[None] = gui.slider_float("beta", beta[None], minimum=0.1, maximum=99.0)
     act_pressed = gui.button("Toggle ACT")
     if act_pressed:
-        act[None] = 1-act[None]
+        act[None] = (act[None] + 1) % 3
 
     compute_image()
     compute_w_vis()

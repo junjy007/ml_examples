@@ -39,6 +39,9 @@ KinvY = ti.field(ti.f32, shape=(XN,))
 kvec = ti.field(ti.f32, shape=(XN,))
 
 w_vis = ti.Vector.field(2, ti.f32, shape=(1,))
+gp_vis_flag = ti.field(ti.i32, shape=())
+
+stmp = ti.field(ti.f32, shape=())
 
 flag_select_x = ti.field(ti.i32, shape=())
 # which data model
@@ -75,6 +78,7 @@ def init():
         for j in range(XN):
             K[i, j] = 0
             Kinv[i, j] = 0
+    gp_vis_flag[None] = 0
 
 @ti.func
 def cmap(s:float) -> ti.Vector:
@@ -143,23 +147,29 @@ def pred_X(x:ti.types.vector(2, ti.f32)) -> ti.f32:
             s = actf(s) 
 
     elif model_id[None] == 4 and N[None] > 0:
+        s = 0.0
         for i in range(N[None]):
             kvec[i] = kf(x, X[i])
         kself = kf(x, x)
-        for i in range(N[None]):
-            s = s + kvec[i] * KinvY[i]
+        for ia in range(N[None]):
+            s = s + kvec[ia] * KinvY[ia]
         kk = 0.0
-        for i in range(N[None]):
-            for j in range(N[None]):
-                kk += Kinv[i,j] * kvec[i] * kvec[j]
+        for ib in range(N[None]):
+            for ic in range(N[None]):
+                kk += Kinv[ib,ic] * kvec[ib] * kvec[ic]
         vr = kself - kk
-        if vr < 0:
-            vr = 0
-        s = ti.randn() * ti.math.sqrt(vr) + s
+        if vr < 0.0:
+            vr = 0.0
+        if gp_vis_flag[None] == 0:
+            s = s 
+        elif gp_vis_flag[None] == 1:
+            s = s - vr
+        elif gp_vis_flag[None] == 2:
+            s = s + vr
+        #s = ti.randn() * ti.math.sqrt(vr) + s
         if act[None] > 0:
             s = actf(s)
-
-        print(s)
+        print("gp: ", x, s, "kk", kvec[0], kvec[1], "ky", KinvY[0], KinvY[1], kvec[0]*KinvY[0])
     return s
     
 @ti.kernel
@@ -217,7 +227,7 @@ def compute_w_scores():
         if wlike > wlike_most:
             wlike_most = wlike
             w_MAP_i[None] = i
-            print(wlike, i)
+            # print(wlike, i)
 
     wz = ti.log(wz)
     print(wz)
@@ -255,7 +265,7 @@ def solve_W(num_iterations: int):
 @ti.func
 def kf(x:ti.types.vector(2, ti.f32), y:ti.types.vector(2, ti.f32)):
     d = ti.math.length(x - y)
-    k = ti.exp( -0.5 * (d*d) / sigma2[None])
+    k = ti.math.exp( -0.5 * (d*d) / sigma2[None])
     return k
 
 @ti.kernel
@@ -269,8 +279,8 @@ def compute_kernel_matrix():
     n = N[None]
     if N[None] > 0:
         compute_kernel_matrix_k()
-        Y_np = Y.to_numpy()
-        Ki_ = np.linalg.inv(K.to_numpy()[:n, :n] + sigma2[None] * np.eye(n))
+        Y_np = Y.to_numpy().astype(np.float32)
+        Ki_ = np.linalg.inv(K.to_numpy()[:n, :n] + sigma2[None] * np.eye(n)).astype(np.float32)
         Kifull = np.zeros((XN, XN), dtype=np.float32)
         Kifull[:n, :n] = Ki_
         Ki_Y = np.dot(Kifull, Y_np)
@@ -289,6 +299,7 @@ window = ti.ui.Window(
 init()
 iter_t = 0
 x_evt = True
+update_timer = 0
 while window.running:
     # Compute the image using the kernel
     gui = window.get_gui()
@@ -322,6 +333,11 @@ while window.running:
     if reset_pressed:
         init()
         x_evt = True
+    
+    # if sele_x_pressed or reset_pressed or act_pressed:
+    #     button_pressed = True
+    # else:
+    #     button_pressed = False
 
 
     mouse = window.get_cursor_pos()
@@ -347,13 +363,19 @@ while window.running:
         solve_W(1000)
         compute_image()
         x_evt = False
-        if model_id[None] == 4:
+    if model_id[None] == 4:
+        if update_timer >= 50:
             x_evt = True
+            update_timer = 0
+            gp_vis_flag[None] += 1
+            if gp_vis_flag[None] >= 3:
+                gp_vis_flag[None] = 0
     img_np = image.to_numpy()
     canvas.set_image(img_np)
     compute_x_vis()
     canvas.circles(X_vis, radius=0.01, per_vertex_color=X_vis_clr)
     
     iter_t += 1
+    update_timer += 1
     # Display the image in the GUI
     window.show()
