@@ -1,7 +1,11 @@
 import taichi as ti
 import numpy as np
 from sklearn.datasets import load_iris
+import argparse
 
+parser = argparse.ArgumentParser()
+parser.add_argument("--noise", action='store_true')
+args = parser.parse_args()
 ti.init(arch=ti.cpu) 
 
 # Define the resolution of the image
@@ -17,6 +21,8 @@ X_np = (X_np - X_np.min(axis=0))
 X_np = X_np / X_np.max(axis=0) * 1.8
 X_np -= 0.9
 X_np = X_np.astype(np.float32)
+if args.noise: Y_np[10] = 1
+print(Y_np)
 
 WBND = 3.0
 XBND = 1.
