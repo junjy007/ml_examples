@@ -1,4 +1,5 @@
 import taichi as ti
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -162,6 +163,7 @@ lmax = ti.field(ti.f32, shape=())
 wscale = ti.field(ti.f32, shape=())
 L2w = ti.field(ti.f32, shape=())
 W_grad = ti.Vector.field(2, ti.f32, shape=())
+W_moment = ti.field(ti.f32, shape=())
 
 # optimisation
 stepsize = ti.field(ti.f32, shape=())
@@ -314,15 +316,15 @@ def compute_W_grad(X_trn, Y_trn):
                 p.grad.zero_()
 
     set_out_w(W_curr[None])
-    X = torch.Tensor(X_trn)
-    Y = torch.LongTensor(Y_trn).unsqueeze(dim=1).to(torch.float32)
-    out = model(X)
-    L = F.binary_cross_entropy_with_logits(out, Y, reduction='mean')
+    Xten = torch.Tensor(X_trn)
+    Yten = torch.LongTensor(Y_trn).unsqueeze(dim=1).to(torch.float32)
+    out = model(Xten)
+    L = F.binary_cross_entropy_with_logits(out, Yten, reduction='mean')
     L += (w_layer.weight[0, 0] ** 2 + w_layer.weight[0, 1] ** 2) * L2w[None] * 1e-5
     L.backward()
-    print("L", L, w_layer.weight.grad[0], X.shape, Y.shape)
-    W_grad[None][0] = w_layer.weight.grad[0, 0]
-    W_grad[None][1] = w_layer.weight.grad[0, 1]
+    print("L", L, w_layer.weight.grad[0], Xten.shape, Yten.shape)
+    W_grad[None][0] = w_layer.weight.grad[0, 0] * (1.0 - W_moment[None]) + W_grad[None][0] * W_moment[None]
+    W_grad[None][1] = w_layer.weight.grad[0, 1] * (1.0 - W_moment[None]) + W_grad[None][1] * W_moment[None]
 
 @ti.kernel
 def update_W_curr():
@@ -342,6 +344,7 @@ def init():
     L2w[None] = 200.0
     stepsize[None] = 0.0
     wvis_n[None] = 0
+    W_moment[None] = 0
     
     # lmax[None] = 1.3
 
@@ -378,7 +381,8 @@ while window.running:
     L2w[None] = gui.slider_float("L2_W x e^-5", L2w[None], minimum=0.0, maximum=1000)
     W_curr[None][0] = gui.slider_float("W_curr 0", W_curr[None][0], minimum=-WBND[None], maximum=WBND[None])
     W_curr[None][1] = gui.slider_float("W_curr 1", W_curr[None][1], minimum=-WBND[None], maximum=WBND[None])
-    stepsize[None] = gui.slider_float("LogStepsize", stepsize[None], minimum=-5, maximum=1.0)
+    stepsize[None] = gui.slider_float("LogStepsize", stepsize[None], minimum=-4, maximum=2.0)
+    W_moment[None] = gui.slider_float("Momentum", W_moment[None], minimum=0, maximum=0.99)
 
     update_w_loss_pressed = gui.button("Update W-Loss Image")
     if update_w_loss_pressed:
@@ -407,6 +411,28 @@ while window.running:
         Y_batch = Y[ii]
         if not batchmode:
             batchmode = True
+
+    if window.is_pressed('s'):
+        # perform 20 steps of batch stoch-grad descend 
+        batchmode = True
+        for bi0 in range(20):
+            for bi in range(100):
+                ii = np.random.choice(X_train_num, size=(batchsize,), replace=False)
+                X_batch = X[ii]
+                Y_batch = Y[ii]
+                compute_W_grad(X_batch, Y_batch)
+                update_W_curr()
+
+            update_W_vis(True)
+            compute_X_batch_vis(X_batch)
+            # compute_W_image(X_batch, Y_batch)
+            # fill_w_image()
+            canvas.set_image(img_np)
+            canvas.circles(X_train_vis, radius=0.005, per_vertex_color=X_train_vis_clr)
+            canvas.circles(W_curr_vis, radius=0.005, color=(0.0, 0.0, 0.5))
+            canvas.circles(X_batch_vis, radius=0.003, color=(1., 1., 1.))
+            window.show()
+            time.sleep(0.1)
 
     if window.is_pressed('w'):
         refresh_w_image = True
