@@ -141,9 +141,9 @@ while window.running:
     yi = min(int(pos[1] * n + 0.5), n-1)
     print(xi, yi)
     if window.get_event():
-        if window.event.key == ti.ui.LMB:
+        if window.event.key == ti.ui.LMB or window.event.key=='a':
             set_pos(yi*n+xi)
-        elif window.event.key == ti.ui.RMB:
+        elif window.event.key == ti.ui.RMB or window.event.key=='z':
             set_neg(yi*n+xi)
         
 
