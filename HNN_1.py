@@ -100,9 +100,9 @@ def update_V():
 def update_colors():
     for i in range(n*n):
         if V[i] > 0.0:
-            colors[i] = ti.Vector([1.0, 1.0, 1.0])
+            colors[i] = ti.Vector([0.0, 0.3, 1.0])
         else:
-            colors[i] = ti.Vector([.0, 0.0, 0.0])
+            colors[i] = ti.Vector([1.0, 0.2, 0.0])
 
 
 def update():
